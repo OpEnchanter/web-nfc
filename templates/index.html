@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Android NFC Reader</title>
+        <style>
+            html {
+                padding: 0px;
+                margin: 0px;
+                display: block;
+                width: 100vw;
+                height: 100vh;
+            }
+
+            body {
+                width: 100vw;
+                height: 100vh;
+                margin: 0px;
+                padding: 0px;
+                display: flex;
+                align-items: center;
+                flex-direction: column;
+                font-family: sans-serif;
+                font-size: 45px;
+                justify-content: center;
+                background-color: rgb(255,255,255);
+            }
+
+            button {
+                width: 75%;
+                aspect-ratio: 5;
+                border: none;
+                border-radius: 25px;
+
+                background-color: rgb(225, 225, 225);
+
+                margin-top: 20px;
+                font-size: 45px;
+
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            button:active {
+                background-color: rgb(200, 200, 200);
+                cursor: pointer;
+            }
+
+            p {
+                width: 75%;
+                border-radius: 25px;
+                background-color: rgb(225,225,225);
+                display: flex;
+                aspect-ratio: 7;
+                align-items: center;
+                justify-content: center;
+                margin-top: 20px;
+            }
+        </style>
+    </head>
+    <body>
+        <button id="read">Validate tag</button>
+        <button id="write">Create tag</button>
+        <p id="result"></p>
+
+        <script>
+            // Read logic
+            const readButton = document.getElementById("read");
+            const result = document.getElementById("result");
+            var ndef = null;
+            try {
+                ndef = new NDEFReader();
+                result.innerText = "NDEF connected successfully";
+                result.style.color = 'rgb(5,155,35)';
+            } catch {
+                result.innerText = "NDEF failed to connect";
+                result.style.color = 'rgb(255,0,0)';
+            }
+
+            readButton.addEventListener("click", async () => {
+                if (ndef !== null) {
+                    const controller = new AbortController();
+                    const signal = controller.signal;
+                    await ndef
+                        .scan({ signal })
+                        .then(() => {
+                            result.innerText = "Reading NFC";
+                            result.style.color = 'rgb(5,155,35)'
+                            ndef.onreading = event => {
+                                const message = event.message;
+                                for (const record of message.records) {
+                                    const decoder = new TextDecoder(record.encoding || "utf-8");
+
+                                    fetch("/api/validatetag", {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        },
+                                        body: JSON.stringify({ tag_data: decoder.decode(record.data) })
+                                    })
+                                        .then( response => response.json() )
+                                        .then( data => {
+                                            if (data.result === "valid") {
+                                                result.innerText = "Tag is valid";
+                                                result.style.color = 'rgb(5,155,35)';
+                                            } else {
+                                                result.innerText = "Tag is invalid";
+                                                result.style.color = 'rgb(255,0,0)';
+                                            }
+                                        })
+                                }
+                                controller.abort();
+                            };
+                    })
+                } else {
+                    result.innerText = "NDEF not available";
+                    result.style.color = 'rgb(255,0,0)';
+                }
+            });
+
+            async function writeTag(data) {
+                const controller = new AbortController();
+                const signal = controller.signal;
+                result.innerText = "New ID registered, please tap tag";
+                result.style.color = 'rgb(5,155,35)';
+                await ndef.write({
+                    records: [{ recordType: "text", data:data.id }]
+                })
+                    .then(() => {
+                        result.innerText = "Tag written";
+                        result.style.color = 'rgb(5,155,35)';
+                        controller.abort();
+                    })
+            }
+
+            // Write logic
+            const writeButton = document.getElementById("write");
+            writeButton.addEventListener("click", async () => {
+                if (ndef !== null) {
+                    fetch("/api/gentag")
+                    .then( response => response.json() )
+                    .then( data => {
+                        try {
+                            writeTag(data)
+                        } catch {
+                            result.innerText = "Tag creation failed";
+                            result.style.color = 'rgb(255,0,0)';
+                        }
+                    })
+                }
+            })
+        </script>
+    </body>
+</html>
